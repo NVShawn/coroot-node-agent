@@ -27,3 +27,15 @@ go-imports:
 .PHONY: go-test
 go-test:
 	go test ./...
+
+.PHONY: build-linux
+build-linux:
+	GOOS=linux go build ./...
+
+.PHONY: build-windows
+build-windows:
+	GOOS=windows go build ./...
+
+.PHONY: crossbuild-check
+crossbuild-check: build-linux build-windows
+	@echo "Both Linux and Windows builds succeeded."

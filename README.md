@@ -9,6 +9,8 @@ It uses eBPF to track container related events such as TCP connects, so the mini
 
 <img src="https://coroot.com/static/img/blog/ebpf.svg" width="800" />
 
+> **Windows port (in progress):** This fork of coroot-node-agent is being extended with Windows support on the `windows-port` branch. The descriptions below reflect the Linux build, which is unchanged. Windows feature parity is being delivered in milestones — see [`AGENTS.md`](AGENTS.md) for the agent workflow and [`plans/windows-port-plan.md`](plans/windows-port-plan.md) for the design and current status.
+
 ## Features
 
 ### TCP connection tracing
