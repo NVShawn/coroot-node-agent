@@ -33,6 +33,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1-0.20250221194427-0af32151e72b
 	github.com/vishvananda/netns v0.0.5
 	github.com/xin053/hsperfdata v0.2.3
+	github.com/yusufpapurcu/wmi v1.2.4
 	go.mongodb.org/mongo-driver v1.14.0
 	go.opentelemetry.io/otel v1.34.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.28.0
@@ -93,6 +94,7 @@ require (
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-openapi/analysis v0.23.0 // indirect
 	github.com/go-openapi/errors v0.22.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect

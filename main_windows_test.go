@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -42,13 +43,27 @@ func TestMachineIDIsNonEmptyOnWindows(t *testing.T) {
 	}
 }
 
-// TestSystemUUIDStubOnWindows documents that systemUUID() currently
-// returns an empty string on Windows. This test will need updating once
-// WMI integration lands (see the follow-up bead referenced in this
-// bead's --notes).
-func TestSystemUUIDStubOnWindows(t *testing.T) {
-	if got := systemUUID(); got != "" {
-		t.Errorf("systemUUID() = %q; expected empty stub until WMI integration ships", got)
+// systemUUIDRegex matches the canonical 8-4-4-4-12 hex UUID format that
+// Win32_ComputerSystemProduct.UUID returns. The match is case-insensitive
+// because Windows reports UUIDs in upper-case while DMI tools historically
+// emitted lower-case; we accept either.
+var systemUUIDRegex = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
+
+// TestSystemUUIDReturnsValidUUID verifies that systemUUID() returns a
+// non-empty value in canonical 8-4-4-4-12 UUID format when the WMI query
+// against Win32_ComputerSystemProduct.UUID succeeds.
+//
+// The all-zero UUID ("00000000-0000-0000-0000-000000000000") is a value
+// that some hypervisors or BIOSes report when a real UUID is not
+// available. We accept it (the format check is what we care about) and
+// only fail if the result is empty or malformed.
+func TestSystemUUIDReturnsValidUUID(t *testing.T) {
+	id := systemUUID()
+	if id == "" {
+		t.Fatal("expected non-empty system_uuid from Win32_ComputerSystemProduct")
+	}
+	if !systemUUIDRegex.MatchString(id) {
+		t.Errorf("system_uuid %q does not match UUID format 8-4-4-4-12 hex", id)
 	}
 }
 
