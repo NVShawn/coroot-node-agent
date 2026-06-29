@@ -17,6 +17,10 @@ import (
 
 const eventLogUnknown = "unknown"
 
+const securityAuditSuccessKeyword uint64 = 0x8020000000000000
+
+var fallbackEventLogChannels = []string{"Application", "System", "Security"}
+
 var windowsEventLogMessagesDesc = prometheus.NewDesc(
 	"windows_event_log_messages_total",
 	"Number of Windows Event Log messages grouped by the automatically extracted repeated pattern",
@@ -108,6 +112,9 @@ func (c *EventLogCollector) addEntry(entry LogEntry) {
 	if strings.TrimSpace(entry.Message) == "" {
 		return
 	}
+	if shouldDropEventLogEntry(entry) {
+		return
+	}
 	source := sourceForEvent(entry)
 	parser := c.parsers[source]
 	if parser == nil {
@@ -147,6 +154,28 @@ func nonEmpty(s string) string {
 }
 
 func normalizeEventLogChannels(channels []string) []string {
+	res := dedupeEventLogChannels(channels)
+	if len(res) == 0 {
+		res = defaultEventLogChannels()
+	}
+	return res
+}
+
+func defaultEventLogChannels() []string {
+	channels, err := listAvailableEventLogChannels()
+	if err != nil {
+		klog.Warningf("failed to enumerate Windows Event Log channels, using fallback channels %v: %v", fallbackEventLogChannels, err)
+		return append([]string(nil), fallbackEventLogChannels...)
+	}
+	channels = dedupeEventLogChannels(channels)
+	if len(channels) == 0 {
+		klog.Warningf("Windows Event Log channel enumeration returned no channels, using fallback channels %v", fallbackEventLogChannels)
+		return append([]string(nil), fallbackEventLogChannels...)
+	}
+	return channels
+}
+
+func dedupeEventLogChannels(channels []string) []string {
 	res := make([]string, 0, len(channels))
 	seen := map[string]bool{}
 	for _, channel := range channels {
@@ -157,8 +186,28 @@ func normalizeEventLogChannels(channels []string) []string {
 		seen[channel] = true
 		res = append(res, channel)
 	}
-	if len(res) == 0 {
-		return []string{"Application", "System"}
-	}
 	return res
+}
+
+func shouldDropEventLogEntry(entry LogEntry) bool {
+	return strings.EqualFold(strings.TrimSpace(entry.Channel), "Security") && isSecurityAuditSuccess(entry.Keywords)
+}
+
+func isSecurityAuditSuccess(keywords string) bool {
+	if strings.Contains(strings.ToLower(keywords), "audit success") {
+		return true
+	}
+	for _, field := range strings.FieldsFunc(keywords, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	}) {
+		field = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(field)), "0x")
+		if field == "" {
+			continue
+		}
+		value, err := strconv.ParseUint(field, 16, 64)
+		if err == nil && value&securityAuditSuccessKeyword == securityAuditSuccessKeyword {
+			return true
+		}
+	}
+	return false
 }

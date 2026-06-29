@@ -37,7 +37,7 @@ milestones, but final support validation still requires a Windows Server
 | Cloud metadata enrichment | Implemented for AWS, GCP, IBM, Azure, Hetzner, DigitalOcean, Alibaba, Scaleway, and Oracle metadata sources where the provider metadata API is reachable. |
 | `container_info` and restarts | Implemented for Docker Windows containers. |
 | Docker stdout/stderr log patterns | Implemented for Docker `json-file` log driver. |
-| Windows Event Log patterns | Implemented for `Application` and `System` by default. Exposes `windows_event_log_messages_total` and can subscribe to additional channels with `--windows-event-log-channel`. |
+| Windows Event Log patterns | Implemented for registered Windows Event Log channels by default, skipping channels Windows refuses to subscribe to. Exposes `windows_event_log_messages_total`; Security audit successes are dropped, while Security audit failures and other non-success events are retained. `--windows-event-log-channel` limits collection to explicit channels. |
 | TCP connect/bytes/active metrics | Implemented for process-isolated Docker containers where ETW data events carry host PIDs. |
 | DNS, failed connect, listen metrics | Deferred to `plans/windows-network-fallback-plan.md`. |
 | OTLP trace export | Implemented for Windows agent lifecycle spans when `--traces-endpoint` or `--collector-endpoint` is configured. Linux L7 trace parity remains unsupported on Windows. |

@@ -54,11 +54,17 @@ In another PowerShell session:
 ## Windows Event Logs
 
 By default, the Windows binary subscribes to future events from the
-`Application` and `System` channels and exposes
+registered Windows Event Log channels and exposes
 `windows_event_log_messages_total` with `channel`, `provider`,
-`event_id`, `level`, `pattern_hash`, and `sample` labels.
+`event_id`, `level`, `pattern_hash`, and `sample` labels. Security
+audit-success events are dropped by default to avoid overwhelming the
+host log signal; Security audit failures and other non-success Security
+events are retained. Some registered analytic or debug channels cannot
+be subscribed to through the Windows Event Log API; the agent skips
+those channels and continues collecting from the supported channels.
 
-Add channels by repeating `--windows-event-log-channel`:
+Limit collection to specific channels by repeating
+`--windows-event-log-channel`:
 
 ```powershell
 .\coroot-node-agent.exe `

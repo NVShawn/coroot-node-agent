@@ -4,6 +4,7 @@ package logs
 
 import (
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,23 +19,85 @@ import (
 
 const eventLogLocaleEn = 1033
 
+var listAvailableEventLogChannels = winlog.AvailableChannels
+
 type EventLogReader struct {
-	mu           sync.Mutex
-	buf          []LogEntry
+	mu            sync.Mutex
+	buf           []LogEntry
+	subscriptions []*eventLogSubscription
+	stop          windows.Handle
+}
+
+type eventLogSubscription struct {
 	config       *winlog.SubscribeConfig
 	subscription windows.Handle
 	pubCache     map[string]windows.Handle
-	stop         windows.Handle
+	channels     []string
 }
 
 func NewEventLogReader(channels ...string) (*EventLogReader, error) {
-	signal, err := windows.CreateEvent(nil, 1, 1, nil)
+	stop, err := windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
 		return nil, err
 	}
-	stop, err := windows.CreateEvent(nil, 1, 0, nil)
+
+	subscriptions, err := createEventLogSubscriptions(channels, subscribeEventLogChannels)
 	if err != nil {
-		windows.CloseHandle(signal)
+		windows.CloseHandle(stop)
+		return nil, err
+	}
+
+	r := &EventLogReader{
+		subscriptions: subscriptions,
+		stop:          stop,
+	}
+	activeChannels := subscribedEventLogChannels(subscriptions)
+	klog.Infof("subscribed to %d Windows Event Log channels", len(activeChannels))
+	klog.V(2).Infof("subscribed to Windows Event Log channels: %v", activeChannels)
+	for _, sub := range subscriptions {
+		go r.consume(sub)
+	}
+	return r, nil
+}
+
+type eventLogSubscribeFunc func(channels []string) (*eventLogSubscription, error)
+
+func createEventLogSubscriptions(channels []string, subscribe eventLogSubscribeFunc) ([]*eventLogSubscription, error) {
+	sub, err := subscribe(channels)
+	if err == nil {
+		return []*eventLogSubscription{sub}, nil
+	}
+	if len(channels) <= 1 {
+		return nil, err
+	}
+	klog.Warningf("failed to subscribe to combined Windows Event Log query for %d channels, falling back to per-channel subscriptions: %v", len(channels), err)
+
+	var subscriptions []*eventLogSubscription
+	var skipped []string
+	for _, channel := range channels {
+		sub, err := subscribe([]string{channel})
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: %v", channel, err))
+			continue
+		}
+		subscriptions = append(subscriptions, sub)
+	}
+	if len(subscriptions) == 0 {
+		return nil, fmt.Errorf("failed to subscribe to any Windows Event Log channel after combined query failed: %w", err)
+	}
+	if len(skipped) > 0 {
+		sample := skipped
+		if len(sample) > 20 {
+			sample = sample[:20]
+		}
+		klog.Warningf("skipped %d unsupported Windows Event Log channels after per-channel fallback; first %d: %v", len(skipped), len(sample), sample)
+	}
+	return subscriptions, nil
+}
+
+func subscribeEventLogChannels(channels []string) (*eventLogSubscription, error) {
+	signal, err := windows.CreateEvent(nil, 1, 1, nil)
+	if err != nil {
 		return nil, err
 	}
 
@@ -44,45 +107,51 @@ func NewEventLogReader(channels ...string) (*EventLogReader, error) {
 	}
 	xmlQuery, err := winlog.BuildStructuredXMLQuery(xpaths)
 	if err != nil {
+		windows.CloseHandle(signal)
 		return nil, err
 	}
 	queryPtr, err := syscall.UTF16PtrFromString(string(xmlQuery))
 	if err != nil {
+		windows.CloseHandle(signal)
 		return nil, err
 	}
 
 	cfg := &winlog.SubscribeConfig{
 		SignalEvent: signal,
 		Query:       queryPtr,
-		Flags:       wevtapi.EvtSubscribeToFutureEvents,
+		Flags:       wevtapi.EvtSubscribeToFutureEvents | wevtapi.EvtSubscribeTolerateQueryErrors,
 	}
 	subscription, err := winlog.Subscribe(cfg)
 	if err != nil {
 		cfg.Close()
-		windows.CloseHandle(stop)
 		return nil, err
 	}
 
-	r := &EventLogReader{
+	return &eventLogSubscription{
 		config:       cfg,
 		subscription: subscription,
 		pubCache:     map[string]windows.Handle{},
-		stop:         stop,
-	}
-	klog.Infof("subscribed to event log channels: %v", channels)
-	go r.consume()
-	return r, nil
+		channels:     append([]string(nil), channels...),
+	}, nil
 }
 
-func (r *EventLogReader) consume() {
-	handles := []windows.Handle{r.stop, r.config.SignalEvent}
+func subscribedEventLogChannels(subscriptions []*eventLogSubscription) []string {
+	var channels []string
+	for _, sub := range subscriptions {
+		channels = append(channels, sub.channels...)
+	}
+	return channels
+}
+
+func (r *EventLogReader) consume(sub *eventLogSubscription) {
+	handles := []windows.Handle{r.stop, sub.config.SignalEvent}
 	for {
 		ev, err := windows.WaitForMultipleObjects(handles, false, windows.INFINITE)
 		if err != nil || ev == windows.WAIT_OBJECT_0 {
 			return
 		}
 		for {
-			events, err := winlog.GetRenderedEvents(r.config, r.pubCache, r.subscription, 64, eventLogLocaleEn)
+			events, err := winlog.GetRenderedEvents(sub.config, sub.pubCache, sub.subscription, 64, eventLogLocaleEn)
 			for _, x := range events {
 				if entry, ok := parseEvent(x); ok {
 					r.mu.Lock()
@@ -94,7 +163,7 @@ func (r *EventLogReader) consume() {
 				break
 			}
 		}
-		windows.ResetEvent(r.config.SignalEvent)
+		windows.ResetEvent(sub.config.SignalEvent)
 	}
 }
 
@@ -108,11 +177,15 @@ func (r *EventLogReader) Poll() []LogEntry {
 
 func (r *EventLogReader) Close() {
 	windows.SetEvent(r.stop)
-	winlog.Close(r.subscription)
-	for _, h := range r.pubCache {
-		winlog.Close(h)
+	for _, sub := range r.subscriptions {
+		if sub.subscription != 0 {
+			winlog.Close(sub.subscription)
+		}
+		for _, h := range sub.pubCache {
+			winlog.Close(h)
+		}
+		sub.config.Close()
 	}
-	r.config.Close()
 	windows.CloseHandle(r.stop)
 }
 
@@ -123,6 +196,7 @@ type LogEntry struct {
 	EventID   uint32
 	PID       uint32
 	Level     logparser.Level
+	Keywords  string
 	Message   string
 }
 
@@ -139,7 +213,8 @@ type renderedEvent struct {
 		Execution struct {
 			ProcessID uint32 `xml:"ProcessID,attr"`
 		} `xml:"Execution"`
-		Channel string `xml:"Channel"`
+		Channel  string `xml:"Channel"`
+		Keywords string `xml:"Keywords"`
 	} `xml:"System"`
 	EventData struct {
 		Data []string `xml:"Data"`
@@ -172,6 +247,7 @@ func parseEvent(x string) (LogEntry, bool) {
 		EventID:   re.System.EventID,
 		PID:       re.System.Execution.ProcessID,
 		Level:     winLevelToLogparser(re.System.Level),
+		Keywords:  strings.TrimSpace(re.System.Keywords),
 		Message:   msg,
 	}, true
 }

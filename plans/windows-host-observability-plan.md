@@ -45,18 +45,23 @@ Acceptance criteria:
 - [x] **EVT-CRIT-2:** `make lint`, `make test`, and
       `make crossbuild-check` pass.
 - [x] **EVT-CRIT-3:** A Windows run with default settings subscribes to
-      `Application` and `System`, and `/metrics` can expose
-      `windows_event_log_messages_total`.
+      registered Windows Event Log channels, drops Security audit
+      successes, keeps Security audit failures/non-successes, skips
+      unsupported channels without disabling the collector, and
+      `/metrics` can expose `windows_event_log_messages_total`.
 - [x] **EVT-CRIT-4:** `--disable-windows-event-log-monitoring` disables
       Event Log collection while leaving Docker JSON log parsing
       unchanged.
 - [x] **EVT-CRIT-5:** User docs list the Event Log flags, default
-      channels, metric name, and required permissions.
+      channel discovery behavior, Security audit-success filtering,
+      metric name, and required permissions.
 
 Testing requirements:
 
 - Unit tests cover the metric labels and collector state transitions
   with synthetic entries.
+- Unit tests cover default channel discovery fallback behavior and
+  Security audit-success filtering.
 - Cross-build must prove Linux builds do not include Windows Event Log
   APIs.
 - A Windows smoke test must write or locate a recent Application/System
@@ -74,6 +79,17 @@ Verification log:
   Application error from provider `CorootEventLogSmoke` with event ID
   `778`, and `/metrics` emitted
   `windows_event_log_messages_total{channel="Application",event_id="778",level="error",provider="CorootEventLogSmoke",sample="ERROR coroot event log smoke 20260625 second",...} 1`.
+- 2026-06-29: Default Event Log settings were expanded to enumerate
+  registered channels, tolerate per-channel subscription errors, and
+  drop Security audit-success events while retaining Security
+  audit-failure/non-success events.
+- 2026-06-29: On Windows 11 VM `coroot-win-gpu-nvml-20260626`, a
+  default run enumerated 1184 registered channels. Windows rejected the
+  combined query, the agent fell back to per-channel subscriptions, and
+  `/metrics` emitted `windows_event_log_messages_total` for channels
+  beyond the old `Application`/`System` default, including
+  `Microsoft-Windows-PowerShell/Operational`,
+  `Microsoft-Windows-WMI-Activity/Operational`, and `OpenSSH/Admin`.
 
 ### M6.2 — Windows OTLP trace export
 

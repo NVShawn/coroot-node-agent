@@ -17,7 +17,7 @@ var (
 	LogBurst     = kingpin.Flag("log-burst", "The maximum number of tokens that can be consumed in a single call to allow").Default("100").Envar(envar("LOG_BURST")).Int()
 
 	DisableWindowsEventLogMonitoring = kingpin.Flag("disable-windows-event-log-monitoring", "Disable Windows Event Log monitoring").Default("false").Envar(envar("DISABLE_WINDOWS_EVENT_LOG_MONITORING")).Bool()
-	WindowsEventLogChannels          = kingpin.Flag("windows-event-log-channel", "Windows Event Log channel to subscribe to. Can be specified multiple times.").Default("Application", "System").Envar(envar("WINDOWS_EVENT_LOG_CHANNELS")).Strings()
+	WindowsEventLogChannels          = kingpin.Flag("windows-event-log-channel", "Windows Event Log channel to subscribe to. Can be specified multiple times. Defaults to all registered channels; Security audit successes are dropped.").Envar(envar("WINDOWS_EVENT_LOG_CHANNELS")).Strings()
 
 	TracesEndpoint = kingpin.Flag("traces-endpoint", "The URL of the endpoint to send traces to").Envar(envar("TRACES_ENDPOINT")).URL()
 	TracesSampling = kingpin.Flag("traces-sampling", "Trace sampling rate (0.0 to 1.0)").Default("1.0").Envar(envar("TRACES_SAMPLING")).Float64()
